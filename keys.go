@@ -26,7 +26,7 @@ type KeyMetadata struct {
 	CreatedAt time.Time `json:"created_at"`
 	ExpiresAt time.Time `json:"expires_at"`
 	Status    string    `json:"status"`
-	FilePath  string    `json:"file_path"`
+	FilePath  string    `json:"-"`
 }
 
 // KeyData represents the actual key material and metadata
@@ -42,7 +42,7 @@ func NewKeyStore(path string) (*KeyStore, error) {
 	}
 
 	ks := &KeyStore{
-		Path:        path,
+		Path:        path, // needs a config
 		Permissions: DefaultKeyPermissions,
 		Keys:        make(map[string]KeyMetadata),
 	}
@@ -64,6 +64,23 @@ func NewKeyStore(path string) (*KeyStore, error) {
 func (ks *KeyStore) GenerateKey() (string, error) {
 	ks.Lock()
 	defer ks.Unlock()
+
+	// Deactivate existing active keys
+	for id, key := range ks.Keys {
+		if key.Status == "active" {
+			key.Status = "inactive"
+			ks.Keys[id] = key
+			// Update key file
+			keyData, err := ks.loadKey(key.FilePath)
+			if err != nil {
+				return "", &OpenProofError{Op: "load_existing_active_key", Err: err}
+			}
+			keyData.Status = "inactive"
+			if err := ks.saveKey(*keyData); err != nil {
+				return "", &OpenProofError{Op: "save_existing_active_key", Err: err}
+			}
+		}
+	}
 
 	keyID := generateID("key")
 	keyMaterial := make([]byte, 32) // AES-256
@@ -137,11 +154,15 @@ func (ks *KeyStore) saveKey(keyData KeyData) error {
 
 // loadKey loads a key from disk
 func (ks *KeyStore) loadKey(path string) (*KeyData, error) {
-	file, err := os.OpenFile(path, os.O_RDONLY, ks.Permissions)
+	file, err := os.Open(path) // Use os.Open for read-only
 	if err != nil {
 		return nil, &OpenProofError{Op: "open_key_file", Err: err}
 	}
-	defer file.Close()
+	defer func() {
+		if cerr := file.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	var storage struct {
 		KeyMetadata
@@ -157,6 +178,9 @@ func (ks *KeyStore) loadKey(path string) (*KeyData, error) {
 		return nil, &OpenProofError{Op: "decode_key_material", Err: err}
 	}
 
+	// Set FilePath after loading
+	storage.KeyMetadata.FilePath = path
+
 	return &KeyData{
 		KeyMetadata: storage.KeyMetadata,
 		Material:    material,
@@ -165,6 +189,9 @@ func (ks *KeyStore) loadKey(path string) (*KeyData, error) {
 
 // loadKeys loads all keys from the key store directory
 func (ks *KeyStore) loadKeys() error {
+	ks.Lock()
+	defer ks.Unlock()
+
 	files, err := os.ReadDir(ks.Path)
 	if err != nil {
 		return &OpenProofError{Op: "read_keystore", Err: err}
@@ -217,6 +244,8 @@ func (ks *KeyStore) RotateKey() (string, error) {
 			return "", &OpenProofError{Op: "rotate_key_save_old", Err: err}
 		}
 	}
+	// Set new key as active
+	ks.ActiveKeyID = newKeyID
 
 	return newKeyID, nil
 }

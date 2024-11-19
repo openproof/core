@@ -1,3 +1,4 @@
+// utils.go
 package core
 
 import (
@@ -9,9 +10,10 @@ import (
 
 const (
 	// File permissions and paths
-	DefaultKeyPermissions = 0600
-	KeyStorePath          = "/var/lib/yourapp/keys/"
-	MaxContentSize        = 10 * 1024 * 1024 // 10 MB
+	DefaultKeyPermissions      = 0600
+	DefaultKeyStorePermissions = 0700
+	KeyStorePath               = "/var/lib/yourapp/keys/"
+	MaxContentSize             = 10 * 1024 * 1024 // 10 MB
 
 	// Content Types
 	ContentTypeText      = "text"

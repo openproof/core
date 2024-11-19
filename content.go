@@ -8,7 +8,6 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
-	"io/ioutil"
 )
 
 // Content represents any type of data with encryption and compression support
@@ -170,7 +169,7 @@ func DecompressContent(content *Content) error {
 	}
 	defer reader.Close()
 
-	decompressed, err := ioutil.ReadAll(reader)
+	decompressed, err := io.ReadAll(reader)
 	if err != nil {
 		return fmt.Errorf("decompress content: %w", err)
 	}
