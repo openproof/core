@@ -158,11 +158,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the Apache BSL 1.1 - see the [LICENSE](LICENSE) file for details.
-
-## Security
-
-For security concerns, please email security@openproof.dev instead of using the issue tracker.
+This project is licensed under the BSL 1.1 - see the [LICENSE](LICENSE) file for details.
 
 ## Project Status
 
