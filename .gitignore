@@ -26,3 +26,7 @@ go.work
 # OS specific files
 .DS_Store
 Thumbs.db
+
+.env
+.env.local
+.env.*.local
