@@ -17,7 +17,7 @@ type Record struct {
 	Timestamp   time.Time              `json:"timestamp"`
 	Interaction Interaction            `json:"interaction"`
 	Proof       Proof                  `json:"proof"`
-	Access      AccessControl          `json:"access"`
+	Access      *AccessControl         `json:"access"`
 	Tags        []string               `json:"tags,omitempty"`
 	Extension   map[string]interface{} `json:"extension,omitempty"`
 }
@@ -61,7 +61,7 @@ type AccessControl struct {
 	SharedWith []string              `json:"shared_with,omitempty"`
 	Roles      []string              `json:"roles,omitempty"`
 	AuditLog   []AccessControlChange `json:"audit_log,omitempty"`
-	sync.RWMutex
+	mu         sync.RWMutex
 }
 
 // AccessControlChange logs changes to access control
@@ -84,18 +84,22 @@ func NewRecordManager(config *Config) *RecordManager {
 }
 
 // NewRecord creates a new record with generated ID and timestamp
-func (rm *RecordManager) NewRecord(interaction Interaction, access AccessControl) *Record {
+func (rm *RecordManager) NewRecord(interaction Interaction, access *AccessControl) *Record { // Changed parameter to pointer
+	if access == nil {
+		access = &AccessControl{} // Ensure we never have a nil pointer
+	}
+
 	// Set system details from config
 	interaction.System.Environment = rm.config.Environment
 	interaction.System.Provider = rm.config.Provider
 	interaction.System.CaptureMethod = rm.config.CaptureMethod
 
 	return &Record{
-		Version:     "1.0.0", // Consider moving to config if version needs to be configurable
+		Version:     "1.0.0",
 		ID:          generateID("record"),
 		Timestamp:   time.Now(),
 		Interaction: interaction,
-		Access:      access,
+		Access:      access, // Now safely copying a pointer
 		Tags:        make([]string, 0),
 		Extension:   make(map[string]interface{}),
 	}
@@ -184,8 +188,8 @@ func (rm *RecordManager) SetProof(record *Record, keyID string) {
 
 // AuditAccessControlChange records a change to the access control settings
 func (ac *AccessControl) AuditAccessControlChange(changedBy, description string) {
-	ac.Lock()
-	defer ac.Unlock()
+	ac.mu.Lock()
+	defer ac.mu.Unlock()
 
 	change := AccessControlChange{
 		Timestamp:   time.Now(),
@@ -193,4 +197,18 @@ func (ac *AccessControl) AuditAccessControlChange(changedBy, description string)
 		Description: description,
 	}
 	ac.AuditLog = append(ac.AuditLog, change)
+}
+
+// GetOwner returns the owner with proper locking
+func (ac *AccessControl) GetOwner() string {
+	ac.mu.RLock()
+	defer ac.mu.RUnlock()
+	return ac.Owner
+}
+
+// SetOwner sets the owner with proper locking
+func (ac *AccessControl) SetOwner(owner string) {
+	ac.mu.Lock()
+	defer ac.mu.Unlock()
+	ac.Owner = owner
 }
