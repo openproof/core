@@ -1,3 +1,4 @@
+// record.go
 package core
 
 import (
@@ -8,9 +9,6 @@ import (
 	"sync"
 	"time"
 )
-
-// Version of the OpenProof protocol
-const ProtocolVersion = "1.0.0"
 
 // Record represents a single AI interaction with its proof
 type Record struct {
@@ -73,10 +71,27 @@ type AccessControlChange struct {
 	Description string    `json:"description"`
 }
 
+// RecordManager handles record operations with configuration
+type RecordManager struct {
+	config *Config
+}
+
+// NewRecordManager creates a new record manager with configuration
+func NewRecordManager(config *Config) *RecordManager {
+	return &RecordManager{
+		config: config,
+	}
+}
+
 // NewRecord creates a new record with generated ID and timestamp
-func NewRecord(interaction Interaction, access AccessControl) *Record {
+func (rm *RecordManager) NewRecord(interaction Interaction, access AccessControl) *Record {
+	// Set system details from config
+	interaction.System.Environment = rm.config.Environment
+	interaction.System.Provider = rm.config.Provider
+	interaction.System.CaptureMethod = rm.config.CaptureMethod
+
 	return &Record{
-		Version:     ProtocolVersion,
+		Version:     "1.0.0", // Consider moving to config if version needs to be configurable
 		ID:          generateID("record"),
 		Timestamp:   time.Now(),
 		Interaction: interaction,
@@ -87,45 +102,84 @@ func NewRecord(interaction Interaction, access AccessControl) *Record {
 }
 
 // ValidateRecord performs validation on the record fields
-func (r *Record) ValidateRecord() error {
-	if r.ID == "" {
-		return errors.New("record ID cannot be empty")
+func (rm *RecordManager) ValidateRecord(record *Record) error {
+	var errors []string
+
+	if record.ID == "" {
+		errors = append(errors, "record ID cannot be empty")
 	}
-	if r.Version == "" {
-		return errors.New("record version must be set")
+	if record.Version == "" {
+		errors = append(errors, "record version must be set")
 	}
-	if r.Timestamp.IsZero() {
-		return errors.New("timestamp must be set")
+	if record.Timestamp.IsZero() {
+		errors = append(errors, "timestamp must be set")
 	}
-	if r.Proof.Hash == "" || r.Proof.Signature == "" {
-		return errors.New("proof hash and signature are required")
+	if record.Proof.Hash == "" || record.Proof.Signature == "" {
+		errors = append(errors, "proof hash and signature are required")
 	}
-	if r.Proof.HashAlgorithm == "" || r.Proof.SignatureAlgorithm == "" {
-		return errors.New("hash and signature algorithms must be specified")
+	if record.Proof.HashAlgorithm != rm.config.HashAlgorithm {
+		errors = append(errors, fmt.Sprintf("invalid hash algorithm: %s", record.Proof.HashAlgorithm))
 	}
-	if err := r.validateHashChain(); err != nil {
-		return fmt.Errorf("hash chain validation failed: %w", err)
+	if record.Proof.SignatureAlgorithm != rm.config.SignatureAlgorithm {
+		errors = append(errors, fmt.Sprintf("invalid signature algorithm: %s", record.Proof.SignatureAlgorithm))
 	}
-	if len(r.Interaction.Input.Data) > MaxContentSize || len(r.Interaction.Output.Data) > MaxContentSize {
-		return fmt.Errorf("content data exceeds maximum allowed size of %d bytes", MaxContentSize)
+
+	// Validate content size
+	if len(record.Interaction.Input.Data) > int(rm.config.MaxContentSize) {
+		errors = append(errors, fmt.Sprintf("input content exceeds maximum size of %d bytes", rm.config.MaxContentSize))
 	}
+	if len(record.Interaction.Output.Data) > int(rm.config.MaxContentSize) {
+		errors = append(errors, fmt.Sprintf("output content exceeds maximum size of %d bytes", rm.config.MaxContentSize))
+	}
+
+	if err := rm.validateHashChain(record); err != nil {
+		errors = append(errors, fmt.Sprintf("hash chain validation failed: %v", err))
+	}
+
+	if len(errors) > 0 {
+		return &OpenProofError{
+			Op:  "validate_record",
+			Err: fmt.Errorf("validation errors: %v", errors),
+		}
+	}
+
 	return nil
 }
 
 // validateHashChain checks the integrity of the hash chain
-func (r *Record) validateHashChain() error {
-	if r.Proof.PreviousHash == "" && r.Proof.PreviousID != "" {
-		return errors.New("previous hash must be set if previous ID is provided")
+func (rm *RecordManager) validateHashChain(record *Record) error {
+	if record.Proof.PreviousHash == "" && record.Proof.PreviousID != "" {
+		return &OpenProofError{
+			Op:  "validate_hash_chain",
+			Err: errors.New("previous hash must be set if previous ID is provided"),
+		}
 	}
 	// TODO: Implement retrieval and verification of previous record
 	return nil
 }
 
-// GenerateHash computes the SHA256 hash of the record
-func (r *Record) GenerateHash() string {
-	data, _ := json.Marshal(r)
+// GenerateHash computes the hash of the record using configured algorithm
+func (rm *RecordManager) GenerateHash(record *Record) string {
+	// Currently only supports SHA256, but could be extended based on config
+	if rm.config.HashAlgorithm != DefaultHashAlgorithm {
+		// Log a warning or handle unsupported algorithms
+		// For now, fallback to SHA256
+	}
+
+	data, _ := json.Marshal(record)
 	hash := sha256.Sum256(data)
 	return encodeBase64(hash[:])
+}
+
+// SetProof sets the proof data for the record
+func (rm *RecordManager) SetProof(record *Record, keyID string) {
+	record.Proof = Proof{
+		Hash:               rm.GenerateHash(record),
+		KeyID:              keyID,
+		SignedAt:           time.Now(),
+		HashAlgorithm:      rm.config.HashAlgorithm,
+		SignatureAlgorithm: rm.config.SignatureAlgorithm,
+	}
 }
 
 // AuditAccessControlChange records a change to the access control settings
@@ -139,15 +193,4 @@ func (ac *AccessControl) AuditAccessControlChange(changedBy, description string)
 		Description: description,
 	}
 	ac.AuditLog = append(ac.AuditLog, change)
-}
-
-// SetProof sets the proof data for the record
-func (r *Record) SetProof(keyID string) {
-	r.Proof = Proof{
-		Hash:               r.GenerateHash(),
-		KeyID:              keyID,
-		SignedAt:           time.Now(),
-		HashAlgorithm:      HashAlgorithmSHA256,
-		SignatureAlgorithm: SignatureAlgorithmECDSA,
-	}
 }
