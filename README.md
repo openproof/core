@@ -1,4 +1,3 @@
-# core
 # OpenProof
 
 OpenProof is a Go library that provides cryptographic proof and verification capabilities for AI interactions. It enables secure recording, encryption, and verification of AI system inputs and outputs with features like content encryption, key management, and access control.
