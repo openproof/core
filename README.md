@@ -158,7 +158,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache BSL 1.1 - see the [LICENSE](LICENSE) file for details.
 
 ## Security
 
